@@ -70,65 +70,75 @@ function parseDistributionDate(input) {
  */
 function processDistributionData(fileContent) {
   try {
+    console.log('Processing file content...'); // Debug
     const lines = fileContent.split('\n');
+    console.log(`Total lines: ${lines.length}`); // Debug
     
     const distributionData = {};
     let currentTicker = null;
     
-    // Process each line
     for (const line of lines) {
       const trimmedLine = line.trim();
-      
-      // Skip empty lines
-      if (!trimmedLine) continue;
-      
-      // Check if this is a fund ticker line
+      if (!trimmedLine) {
+        console.log('Skipping empty line'); // Debug
+        continue;
+      }
+
+      // Handle ticker line
       if (trimmedLine.match(/^[A-Z]+$/)) {
         currentTicker = trimmedLine;
         distributionData[currentTicker] = {};
+        console.log(`\n--- New ticker found: ${currentTicker} ---`); // Debug
       } 
-      // Otherwise, parse as distribution data
+      // Handle data line
       else if (currentTicker && trimmedLine.includes(',')) {
+        console.log(`\nProcessing data line: ${trimmedLine}`); // Debug
         const parts = trimmedLine.split(',').map(part => part.trim());
-        
-        // Validate we have at least date and some values
+        console.log('Split parts:', parts); // Debug
+
         if (parts.length >= 2) {
-          const date = parseDistributionDate(parts[0]);
-          
-          // Find NAV value (if provided)
+          const rawDate = parts[0];
+          const date = parseDistributionDate(rawDate);
+          console.log(`Parsed date: ${date} (from ${rawDate})`); // Debug
+
           let reinvestNAV = null;
           let totalDistributions = 0;
-          
-          // Parse all values for total distributions (skip the date)
+
           for (let i = 1; i < parts.length; i++) {
-            const value = parseFloat(parts[i].replace('$', ''));
-            
-            // Skip non-numeric values
+            const cleanValue = parts[i].replace('$', '');
+            const value = parseFloat(cleanValue);
+            console.log(`Part ${i}: "${parts[i]}" → ${value}`); // Debug
+
             if (!isNaN(value)) {
-              // If a value is labeled as NAV or the last value (assuming NAV convention)
               if (parts[i].toLowerCase().includes('nav') || i === parts.length - 1) {
                 reinvestNAV = value;
+                console.log(`Identified NAV: ${value}`); // Debug
               } else {
-                // Otherwise, treat as a distribution
                 totalDistributions += value;
+                console.log(`Added to distributions: ${value} (Total: ${totalDistributions})`); // Debug
               }
             }
           }
-          
-          // For MMF funds, assume reinvest NAV is $1.00
+
+          // Handle MMF override
           if (isMoneyMarketFund(currentTicker)) {
+            console.log(`${currentTicker} is MMF - overriding NAV to 1.00`); // Debug
             reinvestNAV = 1.00;
           }
+
+          const finalNAV = reinvestNAV || 1.00;
+          console.log(`Storing entry: ${date} → NAV: ${finalNAV}, Total: ${totalDistributions}`); // Debug
           
-          // Store the processed data
           distributionData[currentTicker][date] = {
-            reinvestNAV: reinvestNAV || 1.00, // Default to 1.00 if not found
+            reinvestNAV: finalNAV,
             totalDistributions
           };
         }
       }
     }
-    
+
+    console.log('\nFinal processed data structure:'); // Debug
+    console.log(JSON.stringify(distributionData, null, 2)); // Debug
     return distributionData;
   } catch (error) {
     console.error('Error processing distribution data:', error);
@@ -136,18 +146,16 @@ function processDistributionData(fileContent) {
   }
 }
 
-/**
- * Loads the distribution file using fetch API and processes it
- * @param {string} filePath - Path to the distributions.txt file relative to the HTML file
- * @returns {Promise<Object>} - Promise resolving to the structured fund distribution data
- */
 async function loadDistributionFile(filePath = 'distributions.txt') {
   try {
+    console.log(`\nAttempting to load file from: ${filePath}`); // Debug
     const response = await fetch(filePath);
-    if (!response.ok) {
-      throw new Error(`Failed to load file: ${response.status} ${response.statusText}`);
-    }
+    console.log(`Response status: ${response.status} ${response.statusText}`); // Debug
+    
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    
     const fileContent = await response.text();
+    console.log('File content sample:', fileContent.slice(0, 200)); // Debug
     return processDistributionData(fileContent);
   } catch (error) {
     console.error('Error loading distribution file:', error);
