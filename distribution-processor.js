@@ -42,162 +42,98 @@
  */
 
 /**
- * Determines if a fund is a Money Market Fund (MMF) based on its ticker
- * @param {string} ticker - Fund ticker symbol
- * @returns {boolean} - True if the fund is a MMF, false otherwise
+ * Distribution Data Processor
+ * 
+ * Processes fund distribution data from separate MMF and mutual fund files
+ */
+
+// Known MMF tickers (expand as needed)
+const MMF_TICKERS = new Set(['AFAXX']);
+
+/**
+ * Determines fund type from ticker
  */
 function isMoneyMarketFund(ticker) {
-  // List of known Money Market Fund tickers
-  // This list should be expanded based on actual requirements
-  const mmfTickers = ['AFAXX'];
-  return mmfTickers.includes(ticker);
+  return MMF_TICKERS.has(ticker);
 }
 
 /**
- * Converts a 2-digit year date to 4-digit year format.
- * @param {string} input - Date string in 'MM/DD/YY' format
- * @returns {string} - Date string in 'MM/DD/YYYY' format
+ * Gets appropriate filename for a ticker
  */
-/**
- * Converts a date string to 4-digit year format.
- * @param {string} input - Date string in 'MM/DD/YY' or 'MM/DD/YYYY' format
- * @returns {string} - Date string in 'MM/DD/YYYY' format
- */
-function parseDistributionDate(input) {
-  const [month, day, year] = input.split('/');
-  const fullYear = year.length === 2 ? `20${year}` : year;
-  return `${month}/${day}/${fullYear}`;
+function getFundFileName(ticker) {
+  const typePrefix = isMoneyMarketFund(ticker) ? 'mmf' : 'mutual';
+  return `${typePrefix}_${ticker}_distributions.txt`;
 }
 
 /**
- * Processes the distribution data file content
- * @param {string} fileContent - The raw text content of the distributions file
- * @returns {Object} - Structured fund distribution data
+ * Processes raw file content based on fund type
  */
-function processDistributionData(fileContent) {
-  try {
-    console.log('Processing file content...');
-    const lines = fileContent.split('\n');
-    console.log(`Total lines: ${lines.length}`);
+function processDistributionData(fileContent, ticker) {
+  const fundType = isMoneyMarketFund(ticker) ? 'mmf' : 'mutual';
+  const fundData = { [ticker]: {} };
+  const lines = fileContent.split('\n').filter(l => l.trim());
+  
+  if (!lines.length) return fundData;
+  
+  // Skip header line
+  const dataLines = lines.slice(1);
+
+  dataLines.forEach(line => {
+    const parts = line.trim().split('\t');
     
-    const distributionData = {};
-    let currentTicker = null;
-    
-    for (const line of lines) {
-      const trimmedLine = line.trim();
-      if (!trimmedLine) {
-        console.log('Skipping empty line');
-        continue;
-      }
-
-      // Handle ticker line
-      if (trimmedLine.match(/^[A-Z]+$/)) {
-        currentTicker = trimmedLine;
-        distributionData[currentTicker] = {};
-        console.log(`\n--- New ticker found: ${currentTicker} ---`);
-      } 
-      // Handle data line
-      else if (currentTicker && trimmedLine.includes('\t')) {
-        console.log(`\nProcessing data line: ${trimmedLine}`);
-        const parts = trimmedLine.split('\t').map(part => part.trim());
-
-        // Check if current ticker is MMF
-        if (isMoneyMarketFund(currentTicker)) {
-          if (parts.length < 2) {
-            console.log('Skipping MMF line due to insufficient parts');
-            continue;
-          }
-          const [rate, rawDate] = parts;
-          const date = parseDistributionDate(rawDate);
-          const cleanRate = parseFloat(rate);
-          
-          if (isNaN(cleanRate)) {
-            console.log('Invalid rate for MMF:', rate);
-            continue;
-          }
-
-          // Initialize date entry if not exists
-          if (!distributionData[currentTicker][date]) {
-            distributionData[currentTicker][date] = {
-              reinvestNAV: 1.00,
-              totalDistributions: 0
-            };
-          }
-          
-          distributionData[currentTicker][date].totalDistributions += cleanRate;
-          console.log(`Added rate ${cleanRate} to MMF ${currentTicker} on ${date}`);
-        } else {
-          // Skip lines where the first part is not a valid date
-          const isDateValid = parts[0].match(/^\d{1,2}\/\d{1,2}\/(\d{2}|\d{4})$/);
-          if (!isDateValid) {
-            console.log('Skipping non-MMF line due to invalid date format');
-            continue;
-          }
-
-          const rawDate = parts[0];
-          const date = parseDistributionDate(rawDate);
-          console.log(`Parsed date: ${date} (from ${rawDate})`);
-
-          let reinvestNAV = null;
-          let totalDistributions = 0;
-
-          for (let i = 1; i < parts.length; i++) {
-            const cleanValue = parts[i].replace(/[^0-9.]/g, '');
-            const value = parseFloat(cleanValue);
-            console.log(`Part ${i}: "${parts[i]}" → ${value}`);
-
-            if (!isNaN(value)) {
-              if (parts[i].toLowerCase().includes('nav') || i === parts.length - 1) {
-                reinvestNAV = value;
-                console.log(`Identified NAV: ${value}`);
-              } else {
-                totalDistributions += value;
-                console.log(`Added to distributions: ${value} (Total: ${totalDistributions})`);
-              }
-            }
-          }
-
-          // MMF override (though MMF is handled separately)
-          if (isMoneyMarketFund(currentTicker)) {
-            console.log(`${currentTicker} is MMF - overriding NAV to 1.00`);
-            reinvestNAV = 1.00;
-          }
-
-          const finalNAV = reinvestNAV || 1.00;
-          console.log(`Storing entry: ${date} → NAV: ${finalNAV}, Total: ${totalDistributions}`);
-          
-          distributionData[currentTicker][date] = {
-            reinvestNAV: finalNAV,
-            totalDistributions
-          };
-        }
-      }
+    if (fundType === 'mmf') {
+      // Process Money Market Fund (daily rates)
+      const [rateStr, date] = parts;
+      fundData[ticker][date] = {
+        reinvestNAV: 1.00,
+        totalDistributions: parseFloat(rateStr)
+      };
+    } else {
+      // Process Mutual Fund (distribution records)
+      const date = parts[0].length === 8 ? 
+        `${parts[0].slice(0,6)}20${parts[0].slice(6)}` : 
+        parts[0];
+        
+      fundData[ticker][date] = {
+        reinvestNAV: parseFloat(parts[7].replace('$', '')),
+        totalDistributions: [
+          parts[3],  // Regular dividend
+          parts[4],  // Special dividend
+          parts[5],  // Long-term gains
+          parts[6]   // Short-term gains
+        ].reduce((sum, val) => sum + parseFloat(val.replace('$', '') || 0, 0)
+      };
     }
+  });
 
-    console.log('\nFinal processed data structure:');
-    console.log(JSON.stringify(distributionData, null, 2));
-    return distributionData;
-  } catch (error) {
-    console.error('Error processing distribution data:', error);
-    return {};
-  }
+  return fundData;
 }
 
-async function loadDistributionFile(filePath = 'distributions.txt') {
+/**
+ * Main loader function - called from external scripts
+ */
+async function loadFundByTicker(ticker) {
   try {
-    console.log(`\nAttempting to load file from: ${filePath}`); // Debug
-    const response = await fetch(filePath);
-    console.log(`Response status: ${response.status} ${response.statusText}`); // Debug
+    const fileName = getFundFileName(ticker);
+    const response = await fetch(fileName);
     
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    if (!response.ok) throw new Error(`File not found for ${ticker}`);
     
     const fileContent = await response.text();
-    console.log('File content sample:', fileContent.slice(0, 200)); // Debug
-    return processDistributionData(fileContent);
+    return processDistributionData(fileContent, ticker);
   } catch (error) {
-    console.error('Error loading distribution file:', error);
-    return {};
+    console.error(`Failed to load data for ${ticker}:`, error);
+    return { [ticker]: {} };
   }
+}
+
+// Browser environment export
+if (typeof window !== 'undefined') {
+  window.distributionProcessor = {
+    loadFundByTicker,
+    getFundFileName,
+    isMoneyMarketFund
+  };
 }
 
 /**
