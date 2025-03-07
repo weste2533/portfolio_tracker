@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fund NAV Tracker</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .loading {
+            text-align: center;
+            font-style: italic;
+            color: #666;
+            margin: 20px 0;
+        }
+        .error {
+            color: #d32f2f;
+            text-align: center;
+            font-weight: bold;
+        }
+        .fund-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: center;
+        }
+        .fund-card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 500px;
+        }
+        .fund-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .fund-title {
+            margin: 0;
+            color: #1a73e8;
+        }
+        .fund-stats {
+            font-size: 0.9rem;
+            color: #555;
+            margin-bottom: 15px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .change-positive {
+            color: #4caf50;
+        }
+        .change-negative {
+            color: #f44336;
+        }
+    </style>
+</head>
+<body>
+    <h1>Mutual Fund NAV Tracker</h1>
+    
+    <div class="controls">
+        <button id="fetchData">Fetch Fund Data</button>
+        <button id="toggleView">Toggle View (Table/Chart)</button>
+    </div>
+    
+    <div id="loading" class="loading" style="display: none;">Loading fund data...</div>
+    <div id="error" class="error" style="display: none;"></div>
+    
+    <div id="fundContainer" class="fund-container"></div>
+    
+    <script src="fund-data-fetcher.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script>
+        // Funds to track
+        const funds = [
+            { ticker: 'ANCFX', name: 'American Funds Fundamental Investors' },
+            { ticker: 'AGTHX', name: 'American Funds Growth Fund of America' }
+        ];
+        
+        // Date variables
+        const startDate = '2024-12-31';
+        const currentDate = new Date().toISOString().split('T')[0]; // Today in YYYY-MM-DD format
+        
+        // UI elements
+        const fetchButton = document.getElementById('fetchData');
+        const toggleButton = document.getElementById('toggleView');
+        const loadingElement = document.getElementById('loading');
+        const errorElement = document.getElementById('error');
+        const fundContainer = document.getElementById('fundContainer');
+        
+        // View state
+        let currentView = 'table';
+        let fundData = {};
+        
+        // Initialize charts container
+        const charts = {};
+        
+        // Event listeners
+        fetchButton.addEventListener('click', fetchAllFundData);
+        toggleButton.addEventListener('click', toggleDataView);
+        
+        // Helper functions
+        function showLoading(show) {
+            loadingElement.style.display = show ? 'block' : 'none';
+        }
+        
+        function showError(message) {
+            errorElement.textContent = message;
+            errorElement.style.display = message ? 'block' : 'none';
+        }
+        
+        function clearFundContainer() {
+            fundContainer.innerHTML = '';
+        }
+        
+        function calculateChanges(data) {
+            if (!data || data.length < 2) return { change: 0, percentChange: 0 };
+            
+            const firstNAV = data[0].nav;
+            const lastNAV = data[data.length - 1].nav;
+            const change = lastNAV - firstNAV;
+            const percentChange = (change / firstNAV) * 100;
+            
+            return {
+                change: change.toFixed(2),
+                percentChange: percentChange.toFixed(2)
+            };
+        }
+        
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric' 
+            });
+        }
+        
+        // Main functions
+        async function fetchAllFundData() {
+            clearFundContainer();
+            showError('');
+            showLoading(true);
+            
+            try {
+                // Fetch data for all funds
+                const promises = funds.map(fund => 
+                    fetchFundData(fund.ticker, startDate, currentDate)
+                        .then(data => {
+                            fundData[fund.ticker] = data;
+                            return { ...fund, data };
+                        })
+                );
+                
+                const results = await Promise.all(promises);
+                
+                // Display the results
+                results.forEach(result => {
+                    displayFundData(result.ticker, result.name, result.data);
+                });
+                
+                showLoading(false);
+            } catch (error) {
+                showLoading(false);
+                showError(`Failed to fetch fund data: ${error.message}`);
+                console.error('Error fetching fund data:', error);
+            }
+        }
+        
+        function displayFundData(ticker, fundName, data) {
+            // Create card for fund
+            const cardElement = document.createElement('div');
+            cardElement.className = 'fund-card';
+            cardElement.id = `fund-${ticker}`;
+            
+            // Calculate changes
+            const changes = calculateChanges(data);
+            const changeClass = parseFloat(changes.change) >= 0 ? 'change-positive' : 'change-negative';
+            const changeSign = parseFloat(changes.change) >= 0 ? '+' : '';
+            
+            // Create card header
+            const headerHTML = `
+                <div class="fund-header">
+                    <h2 class="fund-title">${fundName} (${ticker})</h2>
+                </div>
+                <div class="fund-stats">
+                    <div>Period: ${formatDate(startDate)} to ${formatDate(currentDate)}</div>
+                    <div>Change: <span class="${changeClass}">${changeSign}$${changes.change} (${changeSign}${changes.percentChange}%)</span></div>
+                </div>
+            `;
+            
+            // Create container for view (table or chart)
+            const dataViewContainer = document.createElement('div');
+            dataViewContainer.className = 'data-view-container';
+            
+            cardElement.innerHTML = headerHTML;
+            cardElement.appendChild(dataViewContainer);
+            
+            // Add card to container
+            fundContainer.appendChild(cardElement);
+            
+            // Display data in current view
+            updateDataView(ticker, fundName, data);
+        }
+        
+        function updateDataView(ticker, fundName, data) {
+            const container = document.querySelector(`#fund-${ticker} .data-view-container`);
+            
+            if (currentView === 'table') {
+                displayTableView(container, data);
+            } else {
+                displayChartView(container, ticker, fundName, data);
+            }
+        }
+        
+        function displayTableView(container, data) {
+            // Create table
+            let tableHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>NAV ($)</th>
+                            <th>Daily Change (%)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            // Add rows for each data point
+            data.forEach((item, index) => {
+                const prevNAV = index > 0 ? data[index - 1].nav : item.nav;
+                const dailyChange = ((item.nav - prevNAV) / prevNAV) * 100;
+                const changeClass = dailyChange >= 0 ? 'change-positive' : 'change-negative';
+                const changeSign = dailyChange >= 0 ? '+' : '';
+                
+                tableHTML += `
+                    <tr>
+                        <td>${formatDate(item.date)}</td>
+                        <td>$${item.nav.toFixed(2)}</td>
+                        <td class="${changeClass}">${index > 0 ? `${changeSign}${dailyChange.toFixed(2)}%` : '-'}</td>
+                    </tr>
+                `;
+            });
+            
+            tableHTML += `
+                    </tbody>
+                </table>
+            `;
+            
+            container.innerHTML = tableHTML;
+        }
+        
+        function displayChartView(container, ticker, fundName, data) {
+            // Clear container and prepare for chart
+            container.innerHTML = `<canvas id="chart-${ticker}"></canvas>`;
+            const ctx = document.getElementById(`chart-${ticker}`).getContext('2d');
+            
+            // Prepare data for chart
+            const labels = data.map(item => formatDate(item.date));
+            const values = data.map(item => item.nav);
+            
+            // Create or update chart
+            if (charts[ticker]) {
+                charts[ticker].destroy();
+            }
+            
+            charts[ticker] = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: `${fundName} (${ticker}) NAV`,
+                        data: values,
+                        borderColor: '#1a73e8',
+                        backgroundColor: 'rgba(26, 115, 232, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.1,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `NAV: $${context.raw.toFixed(2)}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        },
+                        y: {
+                            beginAtZero: false,
+                            ticks: {
+                                callback: function(value) {
+                                    return '$' + value.toFixed(2);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function toggleDataView() {
+            currentView = currentView === 'table' ? 'chart' : 'table';
+            
+            // Update the display for each fund
+            for (const fund of funds) {
+                if (fundData[fund.ticker]) {
+                    updateDataView(fund.ticker, fund.name, fundData[fund.ticker]);
+                }
+            }
+        }
+        
+        // Initial load
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchAllFundData();
+        });
+    </script>
+</body>
+</html>
