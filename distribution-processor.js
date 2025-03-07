@@ -58,9 +58,15 @@ function isMoneyMarketFund(ticker) {
  * @param {string} input - Date string in 'MM/DD/YY' format
  * @returns {string} - Date string in 'MM/DD/YYYY' format
  */
+/**
+ * Converts a date string to 4-digit year format.
+ * @param {string} input - Date string in 'MM/DD/YY' or 'MM/DD/YYYY' format
+ * @returns {string} - Date string in 'MM/DD/YYYY' format
+ */
 function parseDistributionDate(input) {
   const [month, day, year] = input.split('/');
-  return `${month}/${day}/20${year}`;
+  const fullYear = year.length === 2 ? `20${year}` : year;
+  return `${month}/${day}/${fullYear}`;
 }
 
 /**
@@ -70,9 +76,9 @@ function parseDistributionDate(input) {
  */
 function processDistributionData(fileContent) {
   try {
-    console.log('Processing file content...'); // Debug
+    console.log('Processing file content...');
     const lines = fileContent.split('\n');
-    console.log(`Total lines: ${lines.length}`); // Debug
+    console.log(`Total lines: ${lines.length}`);
     
     const distributionData = {};
     let currentTicker = null;
@@ -80,7 +86,7 @@ function processDistributionData(fileContent) {
     for (const line of lines) {
       const trimmedLine = line.trim();
       if (!trimmedLine) {
-        console.log('Skipping empty line'); // Debug
+        console.log('Skipping empty line');
         continue;
       }
 
@@ -88,46 +94,77 @@ function processDistributionData(fileContent) {
       if (trimmedLine.match(/^[A-Z]+$/)) {
         currentTicker = trimmedLine;
         distributionData[currentTicker] = {};
-        console.log(`\n--- New ticker found: ${currentTicker} ---`); // Debug
+        console.log(`\n--- New ticker found: ${currentTicker} ---`);
       } 
       // Handle data line
-      else if (currentTicker && trimmedLine.includes('\t')) { // Optional: Check for tab presence
-        console.log(`\nProcessing data line: ${trimmedLine}`); // Debug
-        const parts = trimmedLine.split('\t').map(part => part.trim()); // Split by tabs
-        console.log('Split parts:', parts); // Debug
+      else if (currentTicker && trimmedLine.includes('\t')) {
+        console.log(`\nProcessing data line: ${trimmedLine}`);
+        const parts = trimmedLine.split('\t').map(part => part.trim());
 
-        if (parts.length >= 2) {
+        // Check if current ticker is MMF
+        if (isMoneyMarketFund(currentTicker)) {
+          if (parts.length < 2) {
+            console.log('Skipping MMF line due to insufficient parts');
+            continue;
+          }
+          const [rate, rawDate] = parts;
+          const date = parseDistributionDate(rawDate);
+          const cleanRate = parseFloat(rate);
+          
+          if (isNaN(cleanRate)) {
+            console.log('Invalid rate for MMF:', rate);
+            continue;
+          }
+
+          // Initialize date entry if not exists
+          if (!distributionData[currentTicker][date]) {
+            distributionData[currentTicker][date] = {
+              reinvestNAV: 1.00,
+              totalDistributions: 0
+            };
+          }
+          
+          distributionData[currentTicker][date].totalDistributions += cleanRate;
+          console.log(`Added rate ${cleanRate} to MMF ${currentTicker} on ${date}`);
+        } else {
+          // Skip lines where the first part is not a valid date
+          const isDateValid = parts[0].match(/^\d{1,2}\/\d{1,2}\/(\d{2}|\d{4})$/);
+          if (!isDateValid) {
+            console.log('Skipping non-MMF line due to invalid date format');
+            continue;
+          }
+
           const rawDate = parts[0];
           const date = parseDistributionDate(rawDate);
-          console.log(`Parsed date: ${date} (from ${rawDate})`); // Debug
+          console.log(`Parsed date: ${date} (from ${rawDate})`);
 
           let reinvestNAV = null;
           let totalDistributions = 0;
 
           for (let i = 1; i < parts.length; i++) {
-            const cleanValue = parts[i].replace('$', '');
+            const cleanValue = parts[i].replace(/[^0-9.]/g, '');
             const value = parseFloat(cleanValue);
-            console.log(`Part ${i}: "${parts[i]}" → ${value}`); // Debug
+            console.log(`Part ${i}: "${parts[i]}" → ${value}`);
 
             if (!isNaN(value)) {
               if (parts[i].toLowerCase().includes('nav') || i === parts.length - 1) {
                 reinvestNAV = value;
-                console.log(`Identified NAV: ${value}`); // Debug
+                console.log(`Identified NAV: ${value}`);
               } else {
                 totalDistributions += value;
-                console.log(`Added to distributions: ${value} (Total: ${totalDistributions})`); // Debug
+                console.log(`Added to distributions: ${value} (Total: ${totalDistributions})`);
               }
             }
           }
 
-          // Handle MMF override
+          // MMF override (though MMF is handled separately)
           if (isMoneyMarketFund(currentTicker)) {
-            console.log(`${currentTicker} is MMF - overriding NAV to 1.00`); // Debug
+            console.log(`${currentTicker} is MMF - overriding NAV to 1.00`);
             reinvestNAV = 1.00;
           }
 
           const finalNAV = reinvestNAV || 1.00;
-          console.log(`Storing entry: ${date} → NAV: ${finalNAV}, Total: ${totalDistributions}`); // Debug
+          console.log(`Storing entry: ${date} → NAV: ${finalNAV}, Total: ${totalDistributions}`);
           
           distributionData[currentTicker][date] = {
             reinvestNAV: finalNAV,
@@ -137,8 +174,8 @@ function processDistributionData(fileContent) {
       }
     }
 
-    console.log('\nFinal processed data structure:'); // Debug
-    console.log(JSON.stringify(distributionData, null, 2)); // Debug
+    console.log('\nFinal processed data structure:');
+    console.log(JSON.stringify(distributionData, null, 2));
     return distributionData;
   } catch (error) {
     console.error('Error processing distribution data:', error);
