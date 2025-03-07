@@ -226,8 +226,17 @@
             showLoading(true);
             
             try {
-                // First load the distribution data
-                distributionData = await loadDistributionFile('distributions.txt');
+                // First load the distribution data for each fund
+                distributionData = {};
+                const distributionPromises = funds.map(fund => {
+                    return window.distributionProcessor.loadFundByTicker(fund.ticker)
+                        .then(data => {
+                            // Merge the fund-specific data into our global distribution data
+                            Object.assign(distributionData, data);
+                        });
+                });
+                
+                await Promise.all(distributionPromises);
                 console.log('Global distributionData:', distributionData);
                 
                 // Then fetch NAV data for each fund
