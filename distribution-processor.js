@@ -2,6 +2,43 @@
  * Distribution Data Processor
  * 
  * This module processes fund distribution data from a text file for browser environments.
+ * 
+ * INPUT:
+ * - fileContent (string): Content of the distributions.txt file
+ * 
+ * MAIN FUNCTIONS:
+ * 
+ * processDistributionData(fileContent)
+ *   Processes the distribution data file content
+ *   - fileContent (string): The raw text content of the distributions file
+ *   Returns: {Object} - Structured fund distribution data with the following format:
+ *     {
+ *       [Fund Ticker]: {
+ *         [Date]: {
+ *           reinvestNAV: Number,  // NAV price used for reinvestment (default 1.00 for MMF funds)
+ *           totalDistributions: Number  // Sum of all capital gains and dividends
+ *         },
+ *         ...
+ *       },
+ *       ...
+ *     }
+ * 
+ * loadDistributionFile(filePath = 'distributions.txt')
+ *   Loads the distribution file using fetch API and processes it
+ *   - filePath (string): Path to the distributions.txt file relative to the HTML file
+ *   Returns: {Promise<Object>} - Promise resolving to the structured fund distribution data
+ * 
+ * getFundData(ticker, data)
+ *   Retrieves all distribution data for a specific fund
+ *   - ticker (string): The fund ticker symbol
+ *   - data (Object): The processed data object from processDistributionData
+ *   Returns: {Object} - All distribution data for the specified fund
+ * 
+ * getDistributionsByDate(date, data)
+ *   Retrieves all fund distributions for a specific date
+ *   - date (string): The date in 'MM/DD/YYYY' format
+ *   - data (Object): The processed data object from processDistributionData
+ *   Returns: {Object} - All fund distributions for the specified date
  */
 
 /**
@@ -11,6 +48,7 @@
  */
 function isMoneyMarketFund(ticker) {
   // List of known Money Market Fund tickers
+  // This list should be expanded based on actual requirements
   const mmfTickers = ['AFAXX'];
   return mmfTickers.includes(ticker);
 }
@@ -26,93 +64,57 @@ function processDistributionData(fileContent) {
     
     const distributionData = {};
     let currentTicker = null;
-    let headers = [];
-    let isMoneyMarket = false;
     
     // Process each line
-    for (let i = 0; i < lines.length; i++) {
-      const trimmedLine = lines[i].trim();
+    for (const line of lines) {
+      const trimmedLine = line.trim();
       
       // Skip empty lines
       if (!trimmedLine) continue;
       
-      // Check if this is a fund ticker line (all uppercase)
-      if (/^[A-Z]+$/.test(trimmedLine)) {
+      // Check if this is a fund ticker line
+      if (trimmedLine.match(/^[A-Z]+$/)) {
         currentTicker = trimmedLine;
         distributionData[currentTicker] = {};
-        headers = []; // Reset headers
-        isMoneyMarket = isMoneyMarketFund(currentTicker);
-        
-        // Next line should be headers for regular funds
-        if (!isMoneyMarket && i + 1 < lines.length) {
-          headers = lines[i + 1].split('\t').map(h => h.trim());
-        }
       } 
-      // Process data lines
-      else if (currentTicker) {
-        // Different processing for money market funds
-        if (isMoneyMarket) {
-          // Money market format: Rate [tab] As of Date
-          const parts = trimmedLine.split('\t').map(part => part.trim());
-          if (parts.length >= 2) {
-            const rate = parseFloat(parts[0]);
-            const date = formatDate(parts[1]);
-            
-            if (!isNaN(rate) && date) {
-              distributionData[currentTicker][date] = {
-                reinvestNAV: 1.00, // Fixed NAV for money market funds
-                totalDistributions: rate
-              };
-            }
-          }
-        } 
-        // Processing for regular mutual funds
-        else if (headers.length > 0) {
-          const parts = trimmedLine.split('\t').map(part => part.trim());
+      // Otherwise, parse as distribution data
+      else if (currentTicker && trimmedLine.includes(',')) {
+        const parts = trimmedLine.split(',').map(part => part.trim());
+        
+        // Validate we have at least date and some values
+        if (parts.length >= 2) {
+          const date = parts[0];
           
-          // Skip header row
-          if (parts[0] === headers[0]) continue;
+          // Find NAV value (if provided)
+          let reinvestNAV = null;
+          let totalDistributions = 0;
           
-          // Verify we have enough data
-          if (parts.length >= 5) {
-            let date = "";
-            let reinvestNAV = 1.00;
-            let totalDistributions = 0;
+          // Parse all values for total distributions (skip the date)
+          for (let i = 1; i < parts.length; i++) {
+            const value = parseFloat(parts[i].replace('$', ''));
             
-            // Find index of each required column
-            const recordDateIdx = headers.indexOf('Record Date');
-            const navIdx = headers.indexOf('Reinvest NAV');
-            
-            // Get date (Record Date column)
-            if (recordDateIdx >= 0 && parts[recordDateIdx]) {
-              date = formatDate(parts[recordDateIdx]);
-            }
-            
-            // Get NAV (Reinvest NAV column)
-            if (navIdx >= 0 && parts[navIdx]) {
-              reinvestNAV = parseFloat(parts[navIdx].replace('$', ''));
-              if (isNaN(reinvestNAV)) reinvestNAV = 1.00;
-            }
-            
-            // Calculate total distributions (sum of all dividend and capital gains columns)
-            for (let j = 0; j < headers.length; j++) {
-              const header = headers[j].toLowerCase();
-              if (header.includes('dividend') || header.includes('cap. gains')) {
-                const value = parseFloat(parts[j]?.replace('$', '') || '0');
-                if (!isNaN(value)) {
-                  totalDistributions += value;
-                }
+            // Skip non-numeric values
+            if (!isNaN(value)) {
+              // If a value is labeled as NAV or the last value (assuming NAV convention)
+              if (parts[i].toLowerCase().includes('nav') || i === parts.length - 1) {
+                reinvestNAV = value;
+              } else {
+                // Otherwise, treat as a distribution
+                totalDistributions += value;
               }
             }
-            
-            // Store the processed data if we have a valid date
-            if (date) {
-              distributionData[currentTicker][date] = {
-                reinvestNAV,
-                totalDistributions
-              };
-            }
           }
+          
+          // For MMF funds, assume reinvest NAV is $1.00
+          if (isMoneyMarketFund(currentTicker)) {
+            reinvestNAV = 1.00;
+          }
+          
+          // Store the processed data
+          distributionData[currentTicker][date] = {
+            reinvestNAV: reinvestNAV || 1.00, // Default to 1.00 if not found
+            totalDistributions
+          };
         }
       }
     }
@@ -121,50 +123,6 @@ function processDistributionData(fileContent) {
   } catch (error) {
     console.error('Error processing distribution data:', error);
     return {};
-  }
-}
-
-/**
- * Formats a date string to MM/DD/YYYY format
- * @param {string} dateStr - Input date string
- * @returns {string} - Formatted date string
- */
-function formatDate(dateStr) {
-  if (!dateStr) return null;
-  
-  try {
-    // Handle various date formats
-    let date;
-    
-    // If already in MM/DD/YYYY format
-    if (dateStr.includes('/')) {
-      return dateStr;
-    }
-    
-    // Handle dates in format like "03/13/24"
-    if (dateStr.match(/\d{2}\/\d{2}\/\d{2}/)) {
-      const [month, day, shortYear] = dateStr.split('/');
-      const year = parseInt(shortYear) < 50 ? `20${shortYear}` : `19${shortYear}`;
-      return `${month}/${day}/${year}`;
-    }
-    
-    // Try to parse as standard date
-    date = new Date(dateStr);
-    
-    // Check if the date is valid
-    if (isNaN(date.getTime())) {
-      return null;
-    }
-    
-    // Format to MM/DD/YYYY
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const day = date.getDate().toString().padStart(2, '0');
-    const year = date.getFullYear();
-    
-    return `${month}/${day}/${year}`;
-  } catch (error) {
-    console.error('Error formatting date:', error, dateStr);
-    return null;
   }
 }
 
