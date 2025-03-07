@@ -54,6 +54,16 @@ function isMoneyMarketFund(ticker) {
 }
 
 /**
+ * Converts a 2-digit year date to 4-digit year format.
+ * @param {string} input - Date string in 'MM/DD/YY' format
+ * @returns {string} - Date string in 'MM/DD/YYYY' format
+ */
+function parseDistributionDate(input) {
+  const [month, day, year] = input.split('/');
+  return `${month}/${day}/20${year}`;
+}
+
+/**
  * Processes the distribution data file content
  * @param {string} fileContent - The raw text content of the distributions file
  * @returns {Object} - Structured fund distribution data
@@ -83,7 +93,7 @@ function processDistributionData(fileContent) {
         
         // Validate we have at least date and some values
         if (parts.length >= 2) {
-          const date = parts[0];
+          const date = parseDistributionDate(parts[0]);
           
           // Find NAV value (if provided)
           let reinvestNAV = null;
