@@ -91,9 +91,9 @@ function processDistributionData(fileContent) {
         console.log(`\n--- New ticker found: ${currentTicker} ---`); // Debug
       } 
       // Handle data line
-      else if (currentTicker && trimmedLine.includes(',')) {
+      else if (currentTicker && trimmedLine.includes('\t')) { // Optional: Check for tab presence
         console.log(`\nProcessing data line: ${trimmedLine}`); // Debug
-        const parts = trimmedLine.split('\t').map(part => part.trim());
+        const parts = trimmedLine.split('\t').map(part => part.trim()); // Split by tabs
         console.log('Split parts:', parts); // Debug
 
         if (parts.length >= 2) {
