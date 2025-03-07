@@ -93,7 +93,7 @@ function processDistributionData(fileContent) {
       // Handle data line
       else if (currentTicker && trimmedLine.includes(',')) {
         console.log(`\nProcessing data line: ${trimmedLine}`); // Debug
-        const parts = trimmedLine.split(',').map(part => part.trim());
+        const parts = trimmedLine.split('\t').map(part => part.trim());
         console.log('Split parts:', parts); // Debug
 
         if (parts.length >= 2) {
