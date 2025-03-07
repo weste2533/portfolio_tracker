@@ -228,6 +228,7 @@
             try {
                 // First load the distribution data
                 distributionData = await loadDistributionFile('distributions.txt');
+                console.log('Global distributionData:', distributionData);
                 
                 // Then fetch NAV data for each fund
                 const promises = funds.map(fund => {
@@ -291,6 +292,7 @@
             
             // Get fund-specific distribution data
             const fundDistributions = distributionData[ticker] || {};
+            console.log(`Fund distributions for ${ticker}:`, fundDistributions);
             
             // Create card header
             const headerHTML = `
